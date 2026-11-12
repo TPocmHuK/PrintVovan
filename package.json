@@ -92,5 +92,12 @@
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5"
-  }
+  },
+  "trustedDependencies": [
+    "prisma",
+    "@prisma/client",
+    "@prisma/engines",
+    "esbuild",
+    "sharp"
+  ]
 }

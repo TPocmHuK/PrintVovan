@@ -309,3 +309,66 @@ Work Log:
 Stage Summary:
 - Готов путь «тест с другом» без денег и без своего сервера: GitHub (чистый пуш, по готовности) → HF Spaces Import from GitHub → публичная ссылка https://<login>-printflow.hf.space.
 - Путь «на серьёзно» описан там же: VPS + тома, документы и база переживают перезапуски.
+
+---
+Task ID: 11
+Agent: orchestrator (Z.ai Code)
+Task: Пуш чистой истории в https://github.com/TPocmHuK/PrintVovan.
+
+Work Log:
+- ls-remote прошёл без ошибок и без refs → репозиторий публичный и ПУСТОЙ (создан без инициализации) — можно пушить main без конфликтов.
+- Учётных данных GitHub в песочнице нет (gh CLI/env/cred-файлы отсутствуют) → нужен PAT от пользователя.
+- Подготовлен чистый пуш: /tmp/printvovan ← git archive HEAD (только tracked-файлы) → git init -b main → ОДИН коммит 006d253 (автор TPocmHuK <noreply>), 131 файл; проверка: 0 файлов uploads/db/.env/логов; ключевые файлы на месте (Dockerfile, README, prisma, scripts/upload-route.ts.bak, .env.example, upload-роут, pdf.worker).
+- README: добавлен шаг cp .env.example .env в локальный запуск (без .env prisma не стартует).
+- Осталось: получить PAT (repo scope / fine-grained Contents RW) → git push → ls-remote верификация → инструкция HF Spaces.
+
+Stage Summary:
+- Репозиторий к пушу готов полностью; блокер один — токен доступа от владельца.
+
+---
+Task ID: 12
+Agent: orchestrator (Z.ai Code)
+Task: Пуш в GitHub выполнен — PrintVovan опубликован.
+
+Work Log:
+- git push с PAT пользователя (токен в логе замаскирован): /tmp/printvovan (чистый коммит 006d253) → https://github.com/TPocmHuK/PrintVovan, ветка main создана.
+- Верификация: ls-remote показывает refs/heads/main = 006d253; raw.githubusercontent отдаёт README — репозиторий живой и публичный.
+- Пользователю: токен отозвать (приходит в чат — небезопасно хранить); инструкция HF Spaces передана (Import from GitHub или ZIP-upload, SDK Docker, порт 7860 по умолчанию совпадает с Dockerfile).
+
+Stage Summary:
+- Код опубликован: https://github.com/TPocmHuK/PrintVovan (один чистый коммит, персональных данных нет).
+- Следующий шаг пользователя: Hugging Face Space (Docker) → публичная ссылка для друга.
+
+---
+Task ID: 13
+Agent: orchestrator (Z.ai Code)
+Task: HF закрыл Docker-SDK (Paid) → путь GitHub Actions → GHCR → Render free.
+
+Work Log:
+- Пользователь: на HF Spaces SDK Docker заблокирован плашкой Paid (доступен только Static) — бесплатный Docker на HF больше не дают.
+- Решение: .github/workflows/docker-publish.yml (buildx, кэш gha, теги ghcr.io/tpocmhuk/printvovan:latest + :sha, права packages:write, GITHUB_TOKEN) — сборка бесплатна на публичных репо; Render free deploит готовый образ (Existing image), минуя свой лимит 512МБ на сборку next build.
+- README: вариант А переписан на Render из GHCR (+ шаг Change visibility → Public для пакета), HF-вариант удалён.
+- Пуш: первая попытка отклонена (unrelated history — свежий init) → исправлено git reset --soft origin/main + коммит 53a8585 поверх 006d253; вторая попытка: GitHub отклонил пуш workflow-файла — classic PAT со scope repo не может создавать .github/workflows (нужен scope workflow).
+- Итог: на GitHub пока 006d253 (README/workflow не ушли); выбран путь без нового токена — пользователь добавляет workflow-файл через веб-UI (Add file → Create new file → вставить YAML → Commit to main), сборка стартует автоматически.
+- worklog/README/workflow закоммичены в песочнице; при будущем пуше с workflow-токеном синхронизируются.
+
+Stage Summary:
+- Блокер HF обойдён: образ собирает GitHub Actions (бесплатно), Render free принимает готовый образ без карты.
+- Пользователю: 1) добавить workflow-файл через веб (YAML выдан), 2) дождаться Actions, 3) сделать пакет публичным, 4) Render → Existing image → ghcr.io/tpocmhuk/printvovan:latest → Free.
+
+---
+Task ID: 14
+Agent: orchestrator (Z.ai Code)
+Task: Починить падение bun run build в GitHub Actions (buildx exit code 1).
+
+Work Log:
+- Из локального лога упавшего запуска 43213494830 (скачан через API с PAT) найдена точная ошибка: "Failed to load external module @prisma/client-…: Cannot find module '.prisma/client/default'" → "Failed to collect page data for /api/admin/orders/[id]/file".
+- Корень: в контейнере oven/bun:1-debian стоит bun v1.4.4 (в песочнице 1.3.14), и bun install НЕ запускает postinstall @prisma/client → клиент не сгенерирован; Turbopack на этапе Collecting page data грузит модули API-роутов → импорт заглушки падает → exit 1.
+- Воспроизведено локально 1:1 (удалён node_modules/.prisma + сборка под bun-рантаймом без Node) — та же ошибка байт-в-байт.
+- Исправление: Dockerfile — явный RUN bunx prisma generate после bun install; mkdir db/uploads и ENV (NODE_ENV, DATABASE_URL, NEXT_TELEMETRY_DISABLED, PORT, HOSTNAME) перенесены ДО RUN bun run build; package.json — trustedDependencies (prisma/@prisma/client/@prisma/engines/esbuild/sharp); .dockerignore — scripts больше не исключается (бэкап upload-роута едет в образ), добавлены tests/download/upload/examples/mini-services/Caddyfile.
+- Верификация в /tmp/build-test: prisma generate → next build под bun-рантаймом (Node недоступен) — успех; далее как CMD контейнера: bun x prisma db push + bun .next/standalone/server.js (без Node в PATH) → curl /api/settings отдал JSON с настройками (кириллица), / отдал HTML. Рантайм контейнера подтверждён.
+- Пуш в GitHub — поверх fd44eeb (workflow пользователя не трогаем: классический PAT не имеет scope workflow).
+
+Stage Summary:
+- Причина падения сборки найдена по логам Actions и устранена; рантайм образа проверен локально end-to-end.
+- Следующий шаг: пуш → зелёный Actions → пакет public → Render free (Existing image ghcr.io/tpocmhuk/printvovan:latest).

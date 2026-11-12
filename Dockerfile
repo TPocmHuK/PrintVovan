@@ -18,18 +18,25 @@ COPY package.json bun.lock ./
 COPY prisma ./prisma
 RUN bun install
 
+# ВАЖНО: bun (в отличие от npm) может не запускать postinstall @prisma/client
+# (наблюдается на bun >= 1.4), поэтому генерируем клиент явным образом.
+RUN bunx prisma generate
+
+# Писаемые каталоги и переменные окружения ДО сборки: Next выполняет модули
+# во время build, и PrismaClient должен видеть DATABASE_URL уже на этом этапе.
+RUN mkdir -p db uploads
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    DATABASE_URL="file:/app/db/custom.db" \
+    PORT=7860 \
+    HOSTNAME=0.0.0.0
+
 # Исходники и сборка (build-скрипт сам копирует static/ и public/ в standalone).
 COPY . .
 RUN bun run build
 
-# Писаемые каталоги: база SQLite и загруженные документы.
-RUN mkdir -p db uploads \
-    && chown -R bun:bun /app
-
-ENV NODE_ENV=production \
-    DATABASE_URL="file:/app/db/custom.db" \
-    PORT=7860 \
-    HOSTNAME=0.0.0.0
+RUN chown -R bun:bun /app
 
 USER bun
 EXPOSE 7860

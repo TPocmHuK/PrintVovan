@@ -8,7 +8,8 @@ server.log
 .zscripts
 tool-results
 agent-ctx
-scripts
+# scripts НЕ исключаем: там лежит scripts/upload-route.ts.bak —
+# резервная копия upload-роута для самовосстановления внутри образа.
 worklog.md
 .env
 .env.*
@@ -16,3 +17,10 @@ worklog.md
 *.md
 Dockerfile
 .dockerignore
+# Не нужно внутри образа:
+tests
+download
+upload
+examples
+mini-services
+Caddyfile
