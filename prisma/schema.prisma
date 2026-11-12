@@ -1,0 +1,90 @@
+// PrintFlow MVP — один копи-центр, печать А4 ч/б
+// SQLite + Prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Настройки копи-центра (цена за страницу, адрес, часы работы, PIN владельца и т.д.)
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// Загруженный документ (PDF, DOC, DOCX)
+model Document {
+  id             String         @id @default(cuid())
+  fileName       String
+  storageKey     String         @unique
+  fileFormat     String         @default("pdf") // pdf | doc | docx
+  printKey       String? // печатный PDF (для pdf = storageKey, для doc/docx = конвертированный)
+  sizeBytes      Int
+  analysisStatus String         @default("queued") // queued | converting | analyzing | analyzed | failed
+  totalPages     Int?
+  colorPages     Int?
+  bwPages        Int?
+  errorMessage   String?
+  createdAt      DateTime       @default(now())
+  pages          DocumentPage[]
+  orders         Order[]
+}
+
+// Постраничная цветность (результат анализа + ручные пометки пользователя)
+model DocumentPage {
+  id            Int      @id @default(autoincrement())
+  documentId    String
+  pageNumber    Int
+  isColor       Boolean  // авторезультат анализа
+  colorOverride Boolean? // ручная пометка клиента: true = цветная, false = ч/б; null — нет правки
+  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, pageNumber])
+}
+
+// Заказ на печать
+model Order {
+  id                String    @id @default(cuid())
+  code              String    @unique // код отслеживания, напр. PF-7K3M9Q
+  documentId        String
+  document          Document  @relation(fields: [documentId], references: [id])
+  status            String    @default("pending") // pending | accepted | printing | ready | completed | cancelled
+
+  pageRangeText     String // "all" или "1-5, 10, 15-20"
+  pagesToPrint      Int // кол-во выбранных уникальных страниц
+  colorPagesToPrint Int // из них цветных (эффективных — с учётом ручных пометок клиента)
+  bwPagesToPrint    Int // из них ч/б (эффективных)
+  copies            Int
+
+  pricePerPage      Float // снапшот цены ч/б страницы на момент заказа
+  pricePerColorPage Float // снапшот цены цветной страницы на момент заказа
+  totalPrice        Float // (ч/б × цена + цветные × цена_цветной) × копии
+
+  customerName      String
+  customerPhone     String
+  comment           String?
+
+  createdAt         DateTime  @default(now())
+  acceptedAt        DateTime?
+  readyAt           DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+
+  events            OrderEvent[]
+}
+
+// История статусов заказа (таймлайн)
+model OrderEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    String
+  message   String?
+  createdAt DateTime @default(now())
+}
