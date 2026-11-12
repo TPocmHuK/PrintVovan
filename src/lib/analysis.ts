@@ -177,7 +177,9 @@ async function loadPdfjsDocument(
     });
     const doc = await loadingTask.promise;
     return { pdfjs, loadingTask, doc };
-  } catch {
+  } catch (error) {
+    // Реальная причина — в логах сервера (на Render это виден в dashboard → Logs).
+    console.error('[analysis] pdf.js не смог открыть PDF:', error);
     throw new AnalysisFatalError(PDF_PARSE_ERROR_MESSAGE);
   }
 }
@@ -431,7 +433,49 @@ export async function processDocument(documentId: string): Promise<void> {
 
     // 1. Количество страниц: сначала pdf-lib, при неудаче — pdfjs.
     let totalPages = await loadPageCountWithPdfLib(buffer);
-    const { pdfjs, loadingTask, doc } = await loadPdfjsDocument(buffer);
+
+    // 2. Открываем PDF через pdf.js. Если он недоступен (повреждён бандл,
+    //    экзотический файл), но pdf-lib посчитал страницы — деградируем:
+    //    заказ остаётся рабочим, все страницы считаются ч/б (цвет можно
+    //    вручную пометить на шаге параметров).
+    let pdfjs: PdfjsModule;
+    let loadingTask: PdfjsLoadingTask;
+    let doc: PdfjsDocumentProxy;
+    try {
+      ({ pdfjs, loadingTask, doc } = await loadPdfjsDocument(buffer));
+    } catch (error) {
+      if (
+        error instanceof AnalysisFatalError &&
+        typeof totalPages === 'number' &&
+        totalPages > 0
+      ) {
+        console.warn(
+          `[analysis] деградация: pdf.js недоступен, страницы известны (${totalPages}) — все ч/б`,
+        );
+        await db.$transaction([
+          db.documentPage.deleteMany({ where: { documentId } }),
+          db.documentPage.createMany({
+            data: Array.from({ length: totalPages }, (_, index) => ({
+              documentId,
+              pageNumber: index + 1,
+              isColor: false,
+            })),
+          }),
+          db.document.update({
+            where: { id: documentId },
+            data: {
+              analysisStatus: 'analyzed',
+              totalPages,
+              colorPages: 0,
+              bwPages: totalPages,
+              errorMessage: null,
+            },
+          }),
+        ]);
+        return;
+      }
+      throw error;
+    }
     try {
       if (totalPages === null) totalPages = doc.numPages;
 

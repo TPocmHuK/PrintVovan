@@ -372,3 +372,21 @@ Work Log:
 Stage Summary:
 - Причина падения сборки найдена по логам Actions и устранена; рантайм образа проверен локально end-to-end.
 - Следующий шаг: пуш → зелёный Actions → пакет public → Render free (Existing image ghcr.io/tpocmhuk/printvovan:latest).
+
+---
+Task ID: 15
+Agent: orchestrator (Z.ai Code)
+Task: «Не удалось прочитать PDF» на Render после деплоя — найти и починить.
+
+Work Log:
+- Локально воспроизведена среда контейнера: standalone-сервер под bun-рантаймом (/tmp/build-test, bun через абсолютный путь).
+- Воспроизведена точная ошибка пользователя на загрузке PDF; изоляционный тест pdf.js под bun проходил → разрыв был в окружении standalone.
+- Корень: трассировка standalone кладёт в .next/standalone/node_modules/pdfjs-dist только pdf.mjs (1.5 МБ из 37 МБ) — pdf.worker.mjs отсутствует → getDocument() падает при загрузке воркера → catch маскировал это под «файл повреждён». Баг не зависит от рантайма (упал бы и под Node).
+- Заодно найдено: без upload-роута pdf-lib тоже пропадает из standalone (трассировка идёт от графа импортов).
+- Фиксы: package.json build — mkdir+cp pdf.mjs и pdf.worker.mjs в standalone; next.config.ts — outputFileTracingIncludes ('*' → оба файла); analysis.ts — деградация (pdf.js недоступен + pdf-lib знает страницы → analyzed, все ч/б, заказ работает) + console.error реальных ошибок ([analysis] …); shared.ts — ensureUploadRoute молчит в standalone (нет src/app).
+- Верификация: PDF → analyzed, pages 2, color 1 (красный прямоугольник детектирован); DOCX → soffice-конвертация → analyzed, pages 16. (Первый провал DOCX — артефакт PATH=/tmp/bins у тестового сервера; soffice-обёртке нужен стандартный PATH, на Render он есть.)
+- Коммит и пуш в GitHub (Task ID 15), Actions пересобирает образ; Render подхватит новый дайджест.
+
+Stage Summary:
+- Причина ошибки на Render — отсутствующий pdf.worker.mjs в standalone-бандле — устранена двумя слоями + страховочная деградация анализа.
+- Пользователю: дождаться зелёного Actions, в Render Manual Deploy (если не подхватит сам), повторить загрузку.

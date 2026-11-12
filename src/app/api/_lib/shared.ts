@@ -30,6 +30,12 @@ let uploadRouteRestores = 0;
  *  (срабатывает на каждой загрузке страницы, до любой попытки загрузить файл)
  *  и GET /api/documents/[id]/status (поллинг во время анализа). */
 export function ensureUploadRoute(): void {
+  // В production-образе (standalone) исходников нет — роут вшит в бандл,
+  // а process.cwd() указывает на .next/standalone. Молча выходим,
+  // чтобы не спамить логи попытками восстановления.
+  if (!existsSync(path.join(process.cwd(), 'src', 'app'))) {
+    return;
+  }
   const routePath = path.join(process.cwd(), UPLOAD_ROUTE_REL);
   try {
     if (existsSync(routePath) && statSync(routePath).size >= UPLOAD_ROUTE_MIN_BYTES) {
